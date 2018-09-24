@@ -1,0 +1,587 @@
+---
+title: "STAT101C FINAL PROJECT"
+author: "Team M&M: Megan Mets and Mounika Narayanan"
+date: "5/24/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# read in the data
+library(readr)
+train <- read_csv("~/Downloads/train.csv") # 3000   17
+test <- read_csv("~/Downloads/test.csv") # 1400   16
+```
+
+```{r}
+######################### CHANGE THE FATAL COLUMN ##########################
+train[train$Fatal == "U",]$Fatal <- "N"
+train[train$Fatal == "F",]$Fatal <- "Y"
+train$Fatal <- as.factor(train$Fatal)
+
+# this is the clean function
+clean <- function(mydata) {
+  ######################### REMOVE UNNECESSARY COLUMNS ##########################
+  mydata <- mydata[,-which(names(mydata) %in% c("NumberOfSubjects", "Department", "FullNarrative"))]
+  
+  ######################### CHANGE THE NOTES COLUMN ##########################
+  notes <- tolower(mydata$Notes)
+  hit <- rep("NA", length(notes))
+  hit[grepl("no hit", notes)] <- 0
+  hit[grepl("^hit$", notes)] <- 1
+  hit[!grepl("no hit", notes) & (grepl("shot", notes) & grepl("hit", notes))] <- 1
+  
+  fatal <- rep("NA", length(notes))
+  fatal[grepl("non-fatal", notes)] <- 0
+  fatal[!grepl("non-fatal", notes) & grepl("fatal", notes)] <- 1
+  fatal[grepl("killed", notes)] <- 1
+  fatal[grepl("death", notes) & !grepl("no hit", notes)] <- 1
+  
+  weapon <- rep("NA", length(notes))
+  weapon[grepl("toy gun|blank gun|unloaded gun|replica firearm", notes)] <- 0
+  weapon[grepl("weapon|armed|firearm|handgun|knife|gun|revolver|rifle|knives|shotgun|grenade|bb gun|replica gun", notes) 
+         & !grepl("officer's", notes)] <- 1
+  
+  ######################### CHANGE THE OFFICERGENDER COLUMN ##########################
+  library(dplyr)
+  mydata$OfficerGender[is.na(mydata$OfficerGender)] <- "U"
+  mydata$OfficerGender <- unlist(lapply(strsplit(mydata$OfficerGender, ";"), FUN = function(x) {
+    names(which.max(table(x)))
+  }))
+  mydata$OfficerGender[mydata$OfficerGender == "Unknown"] <- "U"
+  mydata$OfficerGender[mydata$OfficerGender == "MALE"] <- "M"
+  mydata$OfficerGender[mydata$OfficerGender == "FEMALE"] <- "F"
+  
+  ######################### CHANGE THE OFFICERRACE COLUMN ##########################
+  mydata$OfficerRace[is.na(mydata$OfficerRace)] <- "U"
+  mydata$OfficerRace <- unlist(lapply(strsplit(mydata$OfficerRace, ";"), FUN = function(x) {
+    names(which.max(table(x)))
+  }))
+  mydata$OfficerRace[mydata$OfficerRace == "Unknown"] <- "U"
+  mydata$OfficerRace[mydata$OfficerRace == "WHITE"] <- "W"
+  mydata$OfficerRace[mydata$OfficerRace == "BLACK"] <- "B"
+  
+  mydata$hit <- hit
+  mydata$newfatal <- fatal
+  mydata$weapon <- weapon
+  
+  return(mydata)
+}
+
+train <- clean(train)
+dim(train) # 3000   17
+test <- clean(test)
+dim(test)  # 1400   16
+```
+
+######################### CHANGE THE DATE COLUMN ##########################
+```{r}
+####### IN TRAIN DATASET #######
+# read the date column as a date
+train$Date <- as.Date(train$Date, "%Y-%m-%d")
+
+# make a month column in the dataset
+library(lubridate)
+train$Month <- month(train$Date)
+# make a Year column in the dataset
+train$Year <- year(train$Date)
+
+# make a fall, winter, spring, summer column
+## fall= sept to nov (9-11)
+## winter= dec to feb (12-2)
+## spring= march to may (3-5)
+## summer= june to august (6-8)
+train$season <- c()
+train$season[train$Month == 3 | train$Month == 4 | train$Month == 5] <- "spring"
+train$season[train$Month == 6 | train$Month == 7 | train$Month == 8] <- "summer"
+train$season[train$Month == 9 | train$Month == 10 | train$Month == 11] <- "fall"
+train$season[train$Month == 12 | train$Month == 1 | train$Month == 2] <- "winter"
+
+####### IN TEST DATASET #######
+test$Date <- as.Date(test$Date, "%Y-%m-%d")
+
+# make a month column in the dataset
+library(lubridate)
+test$Month <- month(test$Date)
+test$Year <- year(test$Date)
+
+# make a fall, winter, spring, summer column
+## fall= sept to nov (9-11)
+## winter= dec to feb (12-2)
+## spring= march to may (3-5)
+## summer= june to august (6-8)
+test$season <- c()
+test$season[test$Month == 3 | test$Month == 4 | test$Month == 5] <- "spring"
+test$season[test$Month == 6 | test$Month == 7 | test$Month == 8] <- "summer"
+test$season[test$Month == 9 | test$Month == 10 | test$Month == 11] <- "fall"
+test$season[test$Month == 12 | test$Month == 1 | test$Month == 2] <- "winter"
+
+# check new dimensions, added 2 columns: month and season
+dim(train) # 3000   20
+dim(test)  # 1400   19
+```
+
+######################### CHANGE THE SUBJECTAGE COLUMN ##########################
+```{r}
+####### IN TRAIN DATASET #######
+# categorize into age ranges that makes sense
+table(train$SubjectAge)
+# 7 groups: 0-19, 20-29, 30-39, 40-49, 50-59, 60+, U
+## making the 0-19 group
+train$SubjectAge[train$SubjectAge == "Juvenile"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "4.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "12.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "13.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "14.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "15.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "16.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "17.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "18.0"] <- "0-19"
+train$SubjectAge[train$SubjectAge == "19.0"] <- "0-19"
+## making the 20-29 group
+train$SubjectAge[train$SubjectAge == "20.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "21.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "22.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "23.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "24.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "25.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "26.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "27.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "28.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "29.0"] <- "20-29"
+train$SubjectAge[train$SubjectAge == "21-23"] <- "20-29"
+## making the 30-39 group
+train$SubjectAge[train$SubjectAge == "30.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "31.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "32.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "33.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "34.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "35.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "36.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "37.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "38.0"] <- "30-39"
+train$SubjectAge[train$SubjectAge == "39.0"] <- "30-39"
+## making the 40-49 group
+train$SubjectAge[train$SubjectAge == "40.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "41.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "42.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "43.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "44.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "45.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "46.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "47.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "48.0"] <- "40-49"
+train$SubjectAge[train$SubjectAge == "49.0"] <- "40-49"
+## making the 50-59 group
+train$SubjectAge[train$SubjectAge == "50.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "51.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "52.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "53.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "54.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "55.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "56.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "57.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "58.0"] <- "50-59"
+train$SubjectAge[train$SubjectAge == "59.0"] <- "50-59"
+## making the 60+ group
+train$SubjectAge[train$SubjectAge == "60.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "61.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "62.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "63.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "64.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "65.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "66.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "67.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "68.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "69.0"] <- "60+"
+train$SubjectAge[train$SubjectAge == "60-69"] <- "60+"
+train$SubjectAge[train$SubjectAge == "73.0"] <- "60+"
+## N/A, U, and UNKNOWN go into category U (i.e. unknown)
+train$SubjectAge[train$SubjectAge == "N/A"] <- "U"
+train$SubjectAge[train$SubjectAge == "UNKNOWN"] <- "U"
+
+
+####### IN TEST DATASET #######
+table(test$SubjectAge)
+# 7 groups: 0-19, 20-29, 30-39, 40-49, 50-59, 60+, U
+## making the 0-19 group
+test$SubjectAge[test$SubjectAge == "13.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "14.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "15.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "16.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "17.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "18.0"] <- "0-19"
+test$SubjectAge[test$SubjectAge == "19.0"] <- "0-19"
+## making the 20-29 group
+test$SubjectAge[test$SubjectAge == "20.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "21.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "22.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "23.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "24.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "25.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "26.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "27.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "28.0"] <- "20-29"
+test$SubjectAge[test$SubjectAge == "29.0"] <- "20-29"
+## making the 30-39 group
+test$SubjectAge[test$SubjectAge == "30.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "31.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "32.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "33.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "34.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "35.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "36.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "37.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "38.0"] <- "30-39"
+test$SubjectAge[test$SubjectAge == "39.0"] <- "30-39"
+## making the 40-49 group
+test$SubjectAge[test$SubjectAge == "40.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "41.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "42.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "43.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "44.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "45.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "46.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "47.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "48.0"] <- "40-49"
+test$SubjectAge[test$SubjectAge == "49.0"] <- "40-49"
+## making the 50-59 group
+test$SubjectAge[test$SubjectAge == "50.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "51.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "52.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "53.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "54.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "55.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "56.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "57.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "58.0"] <- "50-59"
+test$SubjectAge[test$SubjectAge == "59.0"] <- "50-59"
+## making the 60+ group
+test$SubjectAge[test$SubjectAge == "61.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "62.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "63.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "64.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "68.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "70.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "71.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "72.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "78.0"] <- "60+"
+test$SubjectAge[test$SubjectAge == "86.0"] <- "60+"
+## N/A, U, and UNKNOWN go into category U (i.e. unknown)
+test$SubjectAge[test$SubjectAge == "N/A"] <- "U"
+test$SubjectAge[test$SubjectAge == "UNKNOWN"] <- "U"
+
+# check new tables, there are enough values for each category
+table(train$SubjectAge)
+table(test$SubjectAge)
+```
+
+######################### CHANGE THE SUBJECTARMED COLUMN ##########################
+```{r}
+# need to change the NA's to U
+####### IN TRAIN DATASET #######
+unique(train$SubjectArmed)
+table(train$SubjectArmed)
+sum(is.na(train$SubjectArmed)) # 322
+train$SubjectArmed[is.na(train$SubjectArmed)] <- "U"
+
+####### IN TEST DATASET #######
+unique(test$SubjectArmed)
+table(test$SubjectArmed)
+sum(is.na(test$SubjectArmed))
+test$SubjectArmed[is.na(test$SubjectArmed)] <- "U"
+```
+
+######################### CHANGE THE SUBJECTRACE COLUMN ##########################
+```{r}
+# need to change the NA's to U
+####### IN TRAIN DATASET #######
+unique(train$SubjectRace)
+table(train$SubjectRace)
+sum(is.na(train$SubjectRace)) # 1
+train$SubjectRace[is.na(train$SubjectRace)] <- "U"
+
+####### IN TEST DATASET #######
+unique(test$SubjectRace)
+table(test$SubjectRace)
+sum(is.na(test$SubjectRace)) # 0 dont need to change anything
+```
+
+######################### CHANGE THE SUBJECTGENDER COLUMN ##########################
+```{r}
+# need to change the NA's to U
+####### IN TRAIN DATASET #######
+unique(train$SubjectGender)
+table(train$SubjectGender)
+train$SubjectGender[train$SubjectGender == "N/A"] <- "U"
+
+####### IN TEST DATASET #######
+unique(test$SubjectGender)
+table(test$SubjectGender)
+sum(is.na(test$SubjectGender)) # 0, no NA's to change
+# change the 1 M;U to M
+test$SubjectGender[test$SubjectGender == "M;U"] <- "M"
+```
+
+######################### REMOVE THE NOTES COLUMN ##########################
+```{r}
+train_clean <- train
+train_clean <- train_clean[,-14]
+test_clean <- test
+test_clean <- test_clean[,-13]
+dim(train_clean)  # 3000   19
+dim(test_clean)  # 1400   18
+```
+
+######################### RECODING OFFICERRACE AND OFFICERGENDER ##########################
+```{r}
+test_clean$OfficerGender[test_clean$OfficerGender == "Male"] <- "M"
+train_clean$OfficerGender[train_clean$OfficerGender == "M:M"] <- "M"
+train_clean$OfficerGender[train_clean$OfficerGender == "N"] <- "U"
+
+train_clean$OfficerRace[train_clean$OfficerRace == "A/PI"] <- "A"
+train_clean$OfficerRace[train_clean$OfficerRace == "W/ H"] <- "W"
+train_clean$OfficerRace[train_clean$OfficerRace == "A/W"] <- "A"
+train_clean$OfficerRace[train_clean$OfficerRace == "AI/AN"] <- "A"
+train_clean$OfficerRace[train_clean$OfficerRace == "ASIAN"] <- "A"
+train_clean$OfficerRace[train_clean$OfficerRace == "H/L"] <- "L"
+train_clean$OfficerRace[train_clean$OfficerRace == "NA/W"] <- "W"
+train_clean$OfficerRace[train_clean$OfficerRace == "O"] <- "U"
+
+test_clean$OfficerRace[test_clean$OfficerRace == "A/PI"] <- "A"
+test_clean$OfficerRace[test_clean$OfficerRace == "Other:B"] <- "B"
+test_clean$OfficerRace[test_clean$OfficerRace == "m/m"] <- "U"
+test_clean$OfficerRace[test_clean$OfficerRace == "A/W"] <- "A"
+test_clean$OfficerRace[test_clean$OfficerRace == "A/PI Unknown"] <- "A"
+test_clean$OfficerRace[test_clean$OfficerRace == "AI/AN"] <- "A"
+test_clean$OfficerRace[test_clean$OfficerRace == "M"] <- "U"
+test_clean$OfficerRace[test_clean$OfficerRace == "O"] <- "U"
+```
+
+######################### CHANGE THE NUMBEROFOFFICERS COLUMN ##########################
+```{r}
+# change to 2 levels: 1-3 and 4+
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 0] <- 1
+hist(train_clean$NumberOfOfficers)
+train_clean$fatfac <- ifelse(train_clean$Fatal == "Y", 1, 0)
+table(train_clean$fatfac, train_clean$NumberOfOfficers)
+train_clean$NumberOfOfficers[is.na(train_clean$NumberOfOfficers)] <- "U"
+test_clean$NumberOfOfficers[is.na(test_clean$NumberOfOfficers)] <- "U"
+
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 1] <- "1-3"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 2] <- "1-3"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 3] <- "1-3"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 4] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 5] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 6] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 7] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 8] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 9] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 10] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 11] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 13] <- "4+"
+train_clean$NumberOfOfficers[train_clean$NumberOfOfficers == 15] <- "4+"
+train_clean$NumberOfOfficers <- as.factor(train_clean$NumberOfOfficers)
+
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 1] <- "1-3"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 2] <- "1-3"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 3] <- "1-3"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 4] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 5] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 6] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 7] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 8] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 9] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 10] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 11] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 12] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 16] <- "4+"
+test_clean$NumberOfOfficers[test_clean$NumberOfOfficers == 23] <- "4+"
+test_clean$NumberOfOfficers <- as.factor(test_clean$NumberOfOfficers)
+
+train_clean$NumberOfOfficers <- as.factor(train_clean$NumberOfOfficers)
+unique(train_clean$NumberOfOfficers)
+unique(test_clean$NumberOfOfficers)
+```
+
+######################### CHANGING COLUMN TYPES ##########################
+```{r}
+test_clean$SubjectArmed <- as.factor(test_clean$SubjectArmed)
+test_clean$SubjectRace <- as.factor(test_clean$SubjectRace)
+test_clean$SubjectGender <- as.factor(test_clean$SubjectGender)
+test_clean$SubjectAge <- as.factor(test_clean$SubjectAge)
+test_clean$OfficerRace <- as.factor(test_clean$OfficerRace)
+test_clean$OfficerGender <- as.factor(test_clean$OfficerGender)
+test_clean$hit <- as.factor(test_clean$hit)
+test_clean$newfatal <- as.factor(test_clean$newfatal)
+test_clean$weapon <- as.factor(test_clean$weapon)
+test_clean$Month <- as.factor(test_clean$Month)
+test_clean$season <- as.factor(test_clean$season)
+test_clean$City <- as.factor(test_clean$City)
+
+train_clean$SubjectArmed <- as.factor(train_clean$SubjectArmed)
+train_clean$SubjectRace <- as.factor(train_clean$SubjectRace)
+train_clean$SubjectGender <- as.factor(train_clean$SubjectGender)
+train_clean$SubjectAge <- as.factor(train_clean$SubjectAge)
+train_clean$OfficerRace <- as.factor(train_clean$OfficerRace)
+train_clean$OfficerGender <- as.factor(train_clean$OfficerGender)
+train_clean$hit <- as.factor(train_clean$hit)
+train_clean$newfatal <- as.factor(train_clean$newfatal)
+train_clean$weapon <- as.factor(train_clean$weapon)
+train_clean$season <- as.factor(train_clean$season)
+train_clean$Month <- as.factor(train_clean$Month)
+train_clean$City <- as.factor(train_clean$City)
+```
+
+######################### CHANGE THE NUMBEROFSHOTS COLUMN ##########################
+```{r}
+## remove this column because 72% are NA
+train_clean <- train_clean[,-9]
+test_clean <- test_clean[,-8]
+```
+
+######################### CHANGE THE NATUREOFSTOP COLUMN ##########################
+```{r}
+sum(is.na(train_clean$NatureOfStop))
+1929/3000  ## 64% NA
+
+# remove column, no benefit
+train_clean <- train_clean[,-8]
+train_clean <- train_clean[,-18]
+test_clean <- test_clean[,-7]
+
+dim(train_clean)  # 3000   17
+dim(test_clean) # 1400   16
+```
+
+######################### FIXING MORE COLUMNS WITH NAs ##########################
+
+```{r}
+train_clean$weapon <- as.character(train_clean$weapon)
+train_clean$weapon[is.na(train_clean$weapon)] <- "U"
+train_clean$NumberOfOfficers <- as.factor(train_clean$NumberOfOfficers)
+
+train_clean$Month <- as.character(train_clean$Month)
+train_clean$Month[is.na(train_clean$Month)] <- "U"
+train_clean$Month <- as.factor(train_clean$Month)
+
+train_clean$season <- as.character(train_clean$season)
+train_clean$season[is.na(train_clean$season)] <- "U"
+train_clean$season <- as.factor(train_clean$season)
+str(train_clean$season)
+
+train_clean$Date <- as.character(train_clean$Date)
+train_clean$Date[is.na(train_clean$Date)] <- "U"
+train_clean$Date <- as.factor(train_clean$Date)
+str(train_clean$Date)
+
+test_clean$weapon <- as.character(test_clean$weapon)
+test_clean$weapon[test_clean$weapon == "NA"] <- "U"
+test_clean$NumberOfOfficers <- as.factor(test_clean$NumberOfOfficers)
+
+test_clean$Month <- as.character(test_clean$Month)
+test_clean$Month[is.na(test_clean$Month)] <- "U"
+test_clean$Month <- as.factor(test_clean$Month)
+
+test_clean$season <- as.character(test_clean$season)
+test_clean$season[is.na(test_clean$season)] <- "U"
+test_clean$season <- as.factor(test_clean$season)
+str(test_clean$season)
+
+test_clean$Date <- as.character(test_clean$Date)
+test_clean$Date[is.na(test_clean$Date)] <- "U"
+test_clean$Date <- as.factor(test_clean$Date)
+str(test_clean$Date)
+
+train_clean$hit <- as.character(train_clean$hit)
+train_clean$hit[train_clean$hit == "NA"] <- "U"
+train_clean$hit <- as.factor(train_clean$hit)
+
+train_clean$weapon <- as.character(train_clean$weapon)
+train_clean$weapon[train_clean$weapon == "NA"] <- "U"
+train_clean$weapon <- as.factor(train_clean$weapon)
+
+train_clean$newfatal <- as.character(train_clean$newfatal)
+train_clean$newfatal[train_clean$newfatal == "NA"] <- "U"
+train_clean$newfatal <- as.factor(train_clean$newfatal)
+
+train_clean$Year <- as.character(train_clean$Year)
+train_clean$Year[is.na(train_clean$Year)] <- "U"
+train_clean$Year <- as.factor(train_clean$Year)
+
+test_clean$hit <- as.character(test_clean$hit)
+test_clean$hit[test_clean$hit == "NA"] <- "U"
+test_clean$hit <- as.factor(test_clean$hit)
+
+test_clean$newfatal <- as.character(test_clean$newfatal)
+test_clean$newfatal[test_clean$newfatal == "NA"] <- "U"
+test_clean$newfatal <- as.factor(test_clean$newfatal)
+
+test_clean$weapon <- as.factor(test_clean$weapon)
+
+test_clean$Year[is.na(test_clean$Year)] <- "U"
+test_clean$Year <- as.factor(test_clean$Year)
+
+str(train_clean)
+str(test_clean)
+dim(train_clean) # 3000   17
+dim(test_clean)  # 1400   16
+
+train_clean$Month <- as.character(train_clean$Month)
+train_clean$Month[train_clean$Month == "U"] <- NA
+train_clean$Month <- as.numeric(train_clean$Month)
+
+test_clean$Month <- as.character(test_clean$Month)
+test_clean$Month[test_clean$Month == "U"] <- NA
+test_clean$Month <- as.numeric(test_clean$Month)
+
+str(train_clean)
+str(test_clean)
+```
+
+######################### BEST MODEL ##########################
+```{r}
+# BOOSTING
+train_clean$Fatal <- as.numeric(train_clean$Fatal)
+train_clean$Fatal[train_clean$Fatal == 1] <- 0
+train_clean$Fatal[train_clean$Fatal == 2] <- 1
+
+junk1 <- train_clean
+junk2<- test_clean
+
+junk1$Year <- as.character(junk1$Year)
+junk1$Year[junk1$Year == "U"] <- NA
+junk1$Year <- as.numeric(junk1$Year)
+
+junk2$Year <- as.character(junk2$Year)
+junk2$Year[junk2$Year == "U"] <- NA
+junk2$Year <- as.numeric(junk2$Year)
+
+set.seed(123456)
+library(gbm)
+boost.t <- gbm(Fatal ~ SubjectArmed + SubjectRace + SubjectGender + SubjectAge + 
+                      OfficerRace + OfficerGender + Year + hit + newfatal + weapon +
+                      NumberOfOfficers, data= junk1, distribution="gaussian", n.trees =5000 , interaction.depth =4)
+summary(boost.t)
+
+yhat.test <- predict(boost.t, newdata= junk2, n.trees=5000)
+boost <- round(yhat.test)
+
+boost[boost == 0] <- "No"
+boost[boost == "1"] <- "Yes"
+boost[junk2$hit == "0"] <- "No"
+boost[junk2$newfatal == "1"] <- "Yes"
+boost[junk2$newfatal == "0"] <- "No"
+
+predz2 <- cbind(junk2$id, boost)
+predz2 <- as.data.frame(predz2)
+names(predz2) <- c("id", "Fatal")
+
+table(predz2$Fatal)
+
+write.csv(predz2, "june8_best2.csv", row.names = F)
+```
+
